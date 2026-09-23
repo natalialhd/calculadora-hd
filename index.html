@@ -161,7 +161,6 @@
       <div class="field wide">
         <label for="fTz">Zona horaria vigente en el momento y lugar de nacimiento</label>
         <select id="fTz"></select>
-        <span class="hint">Elegí el offset UTC que estaba vigente ese día (considerando horario de verano si correspondía). Esta calculadora no detecta la zona horaria automáticamente — ver Limitaciones más abajo.</span>
       </div>
       <div class="submit-row">
         <button type="submit" class="primary">Calcular mi carta</button>
@@ -226,6 +225,16 @@
   </section>
 
 </main>
+
+<div id="pdfModal" style="display:none; position:fixed; inset:0; background:rgba(20,18,15,0.55); z-index:1000; align-items:center; justify-content:center; padding:16px;">
+  <div style="background:var(--panel); border-radius:12px; width:100%; max-width:820px; height:90vh; display:flex; flex-direction:column; overflow:hidden;">
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--line);">
+      <strong style="font-size:14.5px">Tu carta en PDF</strong>
+      <button type="button" id="pdfModalClose" style="background:transparent;border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;font-weight:600;color:var(--ink)">Cerrar</button>
+    </div>
+    <iframe id="pdfModalFrame" style="flex:1; border:none; width:100%;"></iframe>
+  </div>
+</div>
 
 <script>
 var Astronomy = (function() {
@@ -11139,36 +11148,72 @@ var UI = (function () {
     }
   });
 
+  document.getElementById("pdfModalClose").addEventListener("click", function () {
+    const modal = document.getElementById("pdfModal");
+    const modalFrame = document.getElementById("pdfModalFrame");
+    modal.style.display = "none";
+    modalFrame.src = "about:blank";
+  });
+
+  const CALC_ORIGIN_URL = "https://natalialhd.github.io/calculadora-hd/";
+
+  async function buildPdfAndSave(fileName) {
+    const target = document.getElementById("pdfCaptureArea");
+    const canvas = await html2canvas(target, { scale: 2, backgroundColor: getComputedStyle(document.body).backgroundColor || "#ffffff", useCORS: true });
+    const imgData = canvas.toDataURL("image/png");
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = 24;
+    const imgW = pageW - margin * 2;
+    const imgH = (canvas.height * imgW) / canvas.width;
+    let heightLeft = imgH;
+    let position = margin;
+    pdf.addImage(imgData, "PNG", margin, position, imgW, imgH);
+    heightLeft -= (pageH - margin * 2);
+    while (heightLeft > 0) {
+      position = heightLeft - imgH + margin;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", margin, position, imgW, imgH);
+      heightLeft -= (pageH - margin * 2);
+    }
+    pdf.save(fileName);
+  }
+
   document.getElementById("btnDownloadPdf").addEventListener("click", async function () {
     const statusEl = document.getElementById("pdfStatus");
     const btn = document.getElementById("btnDownloadPdf");
+    const name = (document.getElementById("fName").value || "").trim();
+    const fileName = "carta-diseño-humano" + (name ? "-" + name.toLowerCase().replace(/[^a-z0-9áéíóúñü]+/gi, "-") : "") + ".pdf";
+
+    // When this page is embedded inside another site's iframe (like GoDaddy's
+    // custom-HTML block), that host commonly sandboxes the iframe without
+    // permission to trigger file downloads, so generating the PDF here would
+    // silently fail. In that case, send the person to this calculator's own
+    // page in a new tab — with their data carried over via the URL — where
+    // nothing restricts the download.
+    const isEmbedded = window.self !== window.top;
+    if (isEmbedded) {
+      const params = new URLSearchParams({
+        n: name, d: document.getElementById("fDate").value, t: document.getElementById("fTime").value,
+        p: document.getElementById("fPlace").value, tz: document.getElementById("fTz").value, autopdf: "1"
+      });
+      const a = document.createElement("a");
+      a.href = CALC_ORIGIN_URL + "?" + params.toString();
+      a.target = "_blank";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      statusEl.textContent = "Abrimos tu carta en una pestaña nueva para descargar el PDF ahí.";
+      return;
+    }
+
     try {
       btn.disabled = true;
       statusEl.textContent = "Generando PDF…";
-      const target = document.getElementById("pdfCaptureArea");
-      const canvas = await html2canvas(target, { scale: 2, backgroundColor: getComputedStyle(document.body).backgroundColor || "#ffffff", useCORS: true });
-      const imgData = canvas.toDataURL("image/png");
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      const margin = 24;
-      const usableW = pageW - margin * 2;
-      const imgW = usableW;
-      const imgH = (canvas.height * imgW) / canvas.width;
-      let heightLeft = imgH;
-      let position = margin;
-      pdf.addImage(imgData, "PNG", margin, position, imgW, imgH);
-      heightLeft -= (pageH - margin * 2);
-      while (heightLeft > 0) {
-        position = heightLeft - imgH + margin;
-        pdf.addPage();
-        pdf.addImage(imgData, "PNG", margin, position, imgW, imgH);
-        heightLeft -= (pageH - margin * 2);
-      }
-      const name = (document.getElementById("fName").value || "").trim();
-      const fileName = "carta-diseño-humano" + (name ? "-" + name.toLowerCase().replace(/[^a-z0-9áéíóúñü]+/gi, "-") : "") + ".pdf";
-      pdf.save(fileName);
+      await buildPdfAndSave(fileName);
       statusEl.textContent = "";
     } catch (e) {
       statusEl.textContent = "No se pudo generar el PDF.";
@@ -11282,7 +11327,33 @@ var UI = (function () {
   }
 
   runVerification();
+
+  // ---- auto-fill from URL params (used by the "open in a new tab" PDF fallback,
+  // for when this page is embedded inside another site's sandboxed iframe) ----
+  (function autoFillFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("d") || !params.has("t")) return;
+    if (params.get("n")) document.getElementById("fName").value = params.get("n");
+    document.getElementById("fDate").value = params.get("d");
+    document.getElementById("fTime").value = params.get("t");
+    if (params.get("p")) document.getElementById("fPlace").value = params.get("p");
+    if (params.get("tz")) tzSelect.value = params.get("tz");
+    try {
+      const birthUTC = computeUTCFromForm();
+      const chart = HD.fullChart(birthUTC);
+      renderResults(chart, birthUTC);
+      if (params.get("autopdf") === "1") {
+        const name = (document.getElementById("fName").value || "").trim();
+        const fileName = "carta-diseño-humano" + (name ? "-" + name.toLowerCase().replace(/[^a-z0-9áéíóúñü]+/gi, "-") : "") + ".pdf";
+        setTimeout(function () { buildPdfAndSave(fileName); }, 400);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  })();
 })();
 </script>
 </body>
 </html>
+
+</body></html>
