@@ -126,6 +126,8 @@
   footer.limits{ font-size:13.5px; color:var(--ink-soft); }
   footer.limits ul{ padding-left:20px; }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 
@@ -157,13 +159,13 @@
         <input type="text" id="fPlace" placeholder="Ciudad, país">
       </div>
       <div class="field wide">
-        <label for="fTz">Huso horario vigente en el momento y lugar de nacimiento</label>
+        <label for="fTz">Zona horaria vigente en el momento y lugar de nacimiento</label>
         <select id="fTz"></select>
-        <span class="hint">Elegí el offset UTC que estaba vigente ese día (considerando horario de verano si correspondía). Esta calculadora no detecta el huso automáticamente — ver Limitaciones más abajo.</span>
+        <span class="hint">Elegí el offset UTC que estaba vigente ese día (considerando horario de verano si correspondía). Esta calculadora no detecta la zona horaria automáticamente — ver Limitaciones más abajo.</span>
       </div>
       <div class="submit-row">
         <button type="submit" class="primary">Calcular mi carta</button>
-        <button type="button" class="secondary" id="btnSelfTest">Autotest: Ra Uru Hu</button>
+        <button type="button" class="secondary" id="btnSelfTest" hidden>Autotest: Ra Uru Hu</button>
         <span id="formError"></span>
       </div>
     </form>
@@ -171,6 +173,7 @@
 
   <section class="card" id="resultsSection">
     <h2><span class="num">2</span>Tu BodyGraph</h2>
+    <div id="pdfCaptureArea">
     <div class="summary-grid" id="summaryGrid"></div>
 
     <div class="chart-layout">
@@ -194,6 +197,11 @@
     <div class="centers-summary">
       <h3>Centros definidos</h3>
       <ul id="centersList"></ul>
+    </div>
+    </div>
+    <div class="submit-row" style="margin-top:18px">
+      <button type="button" class="primary" id="btnDownloadPdf">Descargar mi carta en PDF</button>
+      <span id="pdfStatus" style="font-size:13px;color:var(--ink-soft)"></span>
     </div>
   </section>
 
@@ -11128,6 +11136,45 @@ var UI = (function () {
     } catch (e) {
       errEl.textContent = "Error: " + e.message;
       console.error(e);
+    }
+  });
+
+  document.getElementById("btnDownloadPdf").addEventListener("click", async function () {
+    const statusEl = document.getElementById("pdfStatus");
+    const btn = document.getElementById("btnDownloadPdf");
+    try {
+      btn.disabled = true;
+      statusEl.textContent = "Generando PDF…";
+      const target = document.getElementById("pdfCaptureArea");
+      const canvas = await html2canvas(target, { scale: 2, backgroundColor: getComputedStyle(document.body).backgroundColor || "#ffffff", useCORS: true });
+      const imgData = canvas.toDataURL("image/png");
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const margin = 24;
+      const usableW = pageW - margin * 2;
+      const imgW = usableW;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      let heightLeft = imgH;
+      let position = margin;
+      pdf.addImage(imgData, "PNG", margin, position, imgW, imgH);
+      heightLeft -= (pageH - margin * 2);
+      while (heightLeft > 0) {
+        position = heightLeft - imgH + margin;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", margin, position, imgW, imgH);
+        heightLeft -= (pageH - margin * 2);
+      }
+      const name = (document.getElementById("fName").value || "").trim();
+      const fileName = "carta-diseño-humano" + (name ? "-" + name.toLowerCase().replace(/[^a-z0-9áéíóúñü]+/gi, "-") : "") + ".pdf";
+      pdf.save(fileName);
+      statusEl.textContent = "";
+    } catch (e) {
+      statusEl.textContent = "No se pudo generar el PDF.";
+      console.error(e);
+    } finally {
+      btn.disabled = false;
     }
   });
 
