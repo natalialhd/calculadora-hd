@@ -11207,24 +11207,28 @@ var UI = (function () {
 
     // When this page is embedded inside another site's iframe (like GoDaddy's
     // custom-HTML block), that host commonly sandboxes the iframe without
-    // permission to trigger file downloads, so generating the PDF here would
-    // silently fail. In that case, send the person to this calculator's own
-    // page in a new tab — with their data carried over via the URL — where
-    // nothing restricts the download.
+    // permission to trigger file downloads. Opening a *new tab* from inside a
+    // sandboxed iframe doesn't help either: without the (rarely granted)
+    // "allow-popups-to-escape-sandbox" flag, browsers make that new tab
+    // inherit the same restrictions, so the download silently fails there too.
+    // The one thing that reliably escapes the sandbox is navigating the
+    // TOP-LEVEL tab itself (GoDaddy's sandbox does allow that), so we send
+    // the whole tab — not a popup — to this calculator's own page, with the
+    // data carried over via the URL.
     const isEmbedded = window.self !== window.top;
     if (isEmbedded) {
       const params = new URLSearchParams({
         n: name, d: document.getElementById("fDate").value, t: document.getElementById("fTime").value,
         p: document.getElementById("fPlace").value, tz: document.getElementById("fTz").value, autopdf: "1"
       });
-      const a = document.createElement("a");
-      a.href = CALC_ORIGIN_URL + "?" + params.toString();
-      a.target = "_blank";
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      statusEl.textContent = "Abrimos tu carta en una pestaña nueva. Ahí, tocá una vez más el botón para descargar el PDF.";
+      statusEl.textContent = "Te llevamos a tu carta para descargar el PDF…";
+      try {
+        window.top.location.href = CALC_ORIGIN_URL + "?" + params.toString();
+      } catch (e) {
+        // Cross-origin top navigation can be blocked by the browser itself
+        // in rare cases; fall back to a same-frame navigation as a last resort.
+        window.location.href = CALC_ORIGIN_URL + "?" + params.toString();
+      }
       return;
     }
 
