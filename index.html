@@ -11184,7 +11184,19 @@ var UI = (function () {
       pdf.addImage(imgData, "PNG", margin, position, imgW, imgH);
       heightLeft -= (pageH - margin * 2);
     }
-    pdf.save(fileName);
+    // Disparamos la descarga nosotros mismos con un <a download> recién creado
+    // (en vez de pdf.save(), cuyo mecanismo interno de descarga no se estaba
+    // activando en algunos navegadores). Este es el método estándar y más
+    // confiable para forzar una descarga desde el navegador.
+    const blob = pdf.output("blob");
+    const blobUrl = URL.createObjectURL(blob);
+    const downloadLink = document.createElement("a");
+    downloadLink.href = blobUrl;
+    downloadLink.download = fileName;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    downloadLink.remove();
+    setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 10000);
   }
 
   document.getElementById("btnDownloadPdf").addEventListener("click", async function () {
