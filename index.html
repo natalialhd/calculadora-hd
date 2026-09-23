@@ -204,7 +204,11 @@
       <ul id="centersList"></ul>
     </div>
     </div>
-    <div class="submit-row" style="margin-top:18px">
+    <div style="margin-top:18px">
+      <label for="fPdfEmail">Tu correo electrónico (para descargar el PDF)</label>
+      <input type="email" id="fPdfEmail" placeholder="tu@email.com" autocomplete="email">
+    </div>
+    <div class="submit-row" style="margin-top:10px">
       <button type="button" class="primary" id="btnDownloadPdf">Descargar mi carta en PDF</button>
       <span id="pdfStatus" style="font-size:13px;color:var(--ink-soft)"></span>
     </div>
@@ -11199,11 +11203,67 @@ var UI = (function () {
     setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 10000);
   }
 
+  // Envía el email a la audiencia de Mailchimp de Lives Human Design, usando
+  // el mismo mecanismo que un formulario "incrustado" clásico de Mailchimp:
+  // un POST oculto (vía iframe) al endpoint público de suscripción. Este
+  // endpoint no soporta fetch/CORS, así que no podemos leer si tuvo éxito —
+  // es "dispara y olvida", igual que cualquier formulario incrustado normal.
+  const MAILCHIMP_ACTION = "https://liveshumandesign.us19.list-manage.com/subscribe/post?u=60343c07d82054aa5c8e56ab1&id=1571078f5d&f_id=009cc2e1f0";
+  const MAILCHIMP_HONEYPOT_NAME = "b_60343c07d82054aa5c8e56ab1_1571078f5d";
+  function submitEmailToMailchimp(email) {
+    try {
+      let iframe = document.getElementById("mcHiddenFrame");
+      if (!iframe) {
+        iframe = document.createElement("iframe");
+        iframe.id = "mcHiddenFrame";
+        iframe.name = "mcHiddenFrame";
+        iframe.style.display = "none";
+        document.body.appendChild(iframe);
+      }
+      const form = document.createElement("form");
+      form.action = MAILCHIMP_ACTION;
+      form.method = "POST";
+      form.target = "mcHiddenFrame";
+      form.style.display = "none";
+
+      const emailInput = document.createElement("input");
+      emailInput.type = "email";
+      emailInput.name = "EMAIL";
+      emailInput.value = email;
+      form.appendChild(emailInput);
+
+      // campo trampa anti-spam de Mailchimp: debe existir mandado vacío
+      const honeypot = document.createElement("input");
+      honeypot.type = "text";
+      honeypot.name = MAILCHIMP_HONEYPOT_NAME;
+      honeypot.value = "";
+      form.appendChild(honeypot);
+
+      document.body.appendChild(form);
+      form.submit();
+      form.remove();
+    } catch (e) {
+      console.error("No se pudo enviar el email a Mailchimp:", e);
+    }
+  }
+  function isValidEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  }
+
   document.getElementById("btnDownloadPdf").addEventListener("click", async function () {
     const statusEl = document.getElementById("pdfStatus");
     const btn = document.getElementById("btnDownloadPdf");
     const name = (document.getElementById("fName").value || "").trim();
     const fileName = "carta-diseño-humano" + (name ? "-" + name.toLowerCase().replace(/[^a-z0-9áéíóúñü]+/gi, "-") : "") + ".pdf";
+
+    const emailInput = document.getElementById("fPdfEmail");
+    const email = (emailInput.value || "").trim();
+    if (!isValidEmail(email)) {
+      statusEl.textContent = "Ingresá un correo electrónico válido para poder descargar tu carta.";
+      emailInput.focus();
+      return;
+    }
+    submitEmailToMailchimp(email);
 
     // When this page is embedded inside another site's iframe (like GoDaddy's
     // custom-HTML block), that host commonly sandboxes the iframe without
@@ -11219,16 +11279,20 @@ var UI = (function () {
     if (isEmbedded) {
       const params = new URLSearchParams({
         n: name, d: document.getElementById("fDate").value, t: document.getElementById("fTime").value,
-        p: document.getElementById("fPlace").value, tz: document.getElementById("fTz").value, autopdf: "1"
+        p: document.getElementById("fPlace").value, tz: document.getElementById("fTz").value, e: email, autopdf: "1"
       });
       statusEl.textContent = "Te llevamos a tu carta para descargar el PDF…";
-      try {
-        window.top.location.href = CALC_ORIGIN_URL + "?" + params.toString();
-      } catch (e) {
-        // Cross-origin top navigation can be blocked by the browser itself
-        // in rare cases; fall back to a same-frame navigation as a last resort.
-        window.location.href = CALC_ORIGIN_URL + "?" + params.toString();
-      }
+      // Pequeña pausa para darle tiempo al envío del email a Mailchimp antes
+      // de navegar (si no, el POST oculto puede quedar cortado a mitad).
+      setTimeout(function () {
+        try {
+          window.top.location.href = CALC_ORIGIN_URL + "?" + params.toString();
+        } catch (e2) {
+          // Cross-origin top navigation can be blocked by the browser itself
+          // in rare cases; fall back to a same-frame navigation as a last resort.
+          window.location.href = CALC_ORIGIN_URL + "?" + params.toString();
+        }
+      }, 300);
       return;
     }
 
@@ -11360,6 +11424,7 @@ var UI = (function () {
     document.getElementById("fTime").value = params.get("t");
     if (params.get("p")) document.getElementById("fPlace").value = params.get("p");
     if (params.get("tz")) tzSelect.value = params.get("tz");
+    if (params.get("e")) document.getElementById("fPdfEmail").value = params.get("e");
     try {
       const birthUTC = computeUTCFromForm();
       const chart = HD.fullChart(birthUTC);
