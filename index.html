@@ -11306,7 +11306,8 @@ var UI = (function () {
     const logoGap = 12;
     const logoOffset = logoH + logoGap;
     if (LOGO_DATA_URI) {
-      pdf.addImage(LOGO_DATA_URI, "PNG", margin, margin, logoW, logoH);
+      const logoX = (pageW - logoW) / 2;
+      pdf.addImage(LOGO_DATA_URI, "PNG", logoX, margin, logoW, logoH);
     }
 
     let heightLeft = imgH;
